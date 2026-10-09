@@ -1,0 +1,40 @@
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: media_vault
+      MYSQL_USER: media_vault
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      TZ: UTC
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [backend]
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      DB_URL: jdbc:mysql://db:3306/media_vault?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      DB_USERNAME: media_vault
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:?Set BOOTSTRAP_USERNAME in .env}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:?Set BOOTSTRAP_PASSWORD in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      PIKPAK_ENABLED: ${PIKPAK_ENABLED:-false}
+      PIKPAK_SECRET_KEY: ${PIKPAK_SECRET_KEY:-}
+      PIKPAK_PROXY_URL: ${PIKPAK_PROXY_URL:-}
+      SERVER_ADDRESS: 0.0.0.0
+    ports: ["127.0.0.1:8080:8080"]
+    networks: [backend]
+volumes:
+  mysql-data:
+networks:
+  backend:

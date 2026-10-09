@@ -1,0 +1,8 @@
+.git
+.tools
+.local
+.env
+**/node_modules
+**/target
+**/dist
+backend/src/main/resources/static

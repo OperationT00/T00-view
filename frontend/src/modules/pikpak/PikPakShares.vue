@@ -1,0 +1,27 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import Layout from './PikPakLayout.vue'
+import CopyLinks from './CopyLinks.vue'
+import OpenPikPak from './OpenPikPak.vue'
+import { Folder } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+const router = useRouter()
+import { request, message, shareUrl, exportUrl, type Share } from './api'
+const rows = ref<Share[]>([]), busy = ref(false), error = ref(''), info = ref(''), q = ref(''), links = ref(''), name = ref(''), passcode = ref('')
+const editing = ref<Share | null>(null), editName = ref(''), editNote = ref(''), editPass = ref(''), changePass = ref(false), more = ref(false)
+let loadId = 0
+async function load(append = false) { const id = ++loadId; busy.value = true; error.value = ''; try { const next = await request<Share[]>(`/shares?q=${encodeURIComponent(q.value)}&offset=${append ? rows.value.length : 0}&limit=50`); if(id !== loadId)return; rows.value = append ? [...rows.value,...next] : next; more.value = next.length === 50 } catch(e){if(id===loadId)error.value=message(e)} finally{if(id===loadId)busy.value=false} }
+async function add() { busy.value=true; error.value='';info.value='';try { const values=links.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); if(!values.length||values.length>20)throw new Error('请输入 1–20 条链接，每行一条'); const result=await request<Array<{index:number;error:string|null;result:{share:Share;created:boolean}|null}>>('/shares/batch','POST',values.map((url,i)=>({url,name:name.value.trim() ? (values.length===1?name.value:`${name.value} ${i+1}`):`PikPak 分享 ${url.split('/').pop()?.slice(-6) || i+1}`,note:'',passcode:passcode.value}))); const failures=result.filter(r=>r.error);info.value=`新增 ${result.filter(r=>r.result?.created).length} 条，已存在 ${result.filter(r=>r.result&&!r.result.created).length} 条${failures.length?`，失败行：${failures.map(r=>r.index+1).join('、')}`:''}`; if(!failures.length){links.value='';passcode.value=''} await load(); if(values.length===1 && result[0]?.result) await router.push(`/shares/${result[0].result.share.id}`) }catch(e){error.value=message(e)}finally{busy.value=false} }
+function edit(s:Share){editing.value=s;editName.value=s.name;editNote.value=s.note;editPass.value='';changePass.value=false}
+async function save(){if(!editing.value)return;busy.value=true;error.value='';try{await request(`/shares/${editing.value.id}`,'PUT',{name:editName.value,note:editNote.value,passcode:changePass.value?editPass.value:null,version:editing.value.version});editing.value=null;await load()}catch(e){error.value=message(e)}finally{busy.value=false}}
+async function remove(s:Share){if(!window.confirm(`从共享列表移除“${s.name}”？不会删除网盘文件。`))return;busy.value=true;try{await request(`/shares/${s.id}?version=${s.version}`,'DELETE');await load()}catch(e){error.value=message(e)}finally{busy.value=false}}
+onMounted(()=>load())
+</script>
+<template><Layout><h1>pikpak</h1><p class="pk-muted">每条分享链接对应一个在线文件夹，保留原有目录层级和文件名称。</p>
+<RouterLink class="pk-action" to="/shares/duplicates">扫描疑似重复视频 →</RouterLink>
+<form class="pk-panel" @submit.prevent="add"><label for="pk-links">导入分享链接 · 每行生成一个独立文件夹</label><textarea id="pk-links" v-model="links" placeholder="https://mypikpak.com/s/…" required maxlength="82000"/><div class="pk-row" style="margin-top:14px"><input v-model="name" aria-label="分享名称" placeholder="显示名称（可选）" maxlength="255"><input v-model="passcode" aria-label="提取码" placeholder="提取码（可选）" type="password" maxlength="128" autocomplete="off"><button class="pk-primary" :disabled="busy">导入文件夹</button></div></form>
+<p v-if="error" class="pk-error" role="alert">{{error}}</p><p v-if="info" class="pk-message" role="status">{{info}}</p>
+<form v-if="editing" class="pk-panel" @submit.prevent="save"><h2>编辑分享</h2><label>名称<input v-model="editName" required maxlength="255"></label><label>备注<textarea v-model="editNote" maxlength="4000"/></label><label><input v-model="changePass" type="checkbox" style="width:auto"> 修改提取码（留空表示清除）</label><input v-if="changePass" v-model="editPass" type="password" aria-label="新提取码" maxlength="128"><div class="pk-row"><button :disabled="busy">保存</button><button type="button" @click="editing=null">取消</button></div></form>
+<form class="pk-row pk-between" @submit.prevent="load()"><div class="pk-row"><input v-model="q" aria-label="搜索分享" placeholder="搜索名称或备注"><button :disabled="busy">搜索</button></div><CopyLinks /><a class="pk-action" :href="exportUrl()" download="pikpak-links.txt">导出全部链接（TXT）</a><span class="pk-muted">已显示 {{rows.length}} 个文件夹</span></form>
+<div v-if="!rows.length" class="pk-panel pk-muted">{{busy?'正在读取…':'还没有在线文件夹，粘贴分享链接开始。'}}</div><div class="pk-grid" style="margin-top:24px"><article v-for="s in rows" :key="s.id" class="pk-card"><h2><RouterLink :to="`/shares/${s.id}`" class="pk-card-title"><Folder :size="28" />{{s.name}}</RouterLink></h2><p class="pk-small"><span>{{s.originalUrl ? "原始分享链接" : "标准链接（旧记录还原）"}}</span><br><a :href="shareUrl(s)" target="_blank" rel="noopener noreferrer">{{shareUrl(s)}}</a></p><p class="pk-muted">{{s.note || '保留分享原始结构 · 按需读取目录'}}</p><div class="pk-row"><RouterLink class="pk-action" :to="`/shares/${s.id}`">浏览文件夹 →</RouterLink><OpenPikPak :share="s" /><CopyLinks :share="s" /><a class="pk-action" :href="exportUrl(s.id)" download="pikpak-links.txt">导出链接</a><button @click="edit(s)" :disabled="busy">编辑</button><button class="pk-danger" @click="remove(s)" :disabled="busy">移除</button></div></article></div><button v-if="more" @click="load(true)" :disabled="busy" style="margin-top:24px">加载更多</button>
+</Layout></template>

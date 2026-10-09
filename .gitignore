@@ -1,0 +1,13 @@
+.tools/
+.local/
+.env
+*.log
+backend/target/
+modules/**/target/
+frontend/node_modules/
+frontend/dist/
+backend/src/main/resources/static/
+.idea/
+*.iml
+*.tsbuildinfo
+.DS_Store
